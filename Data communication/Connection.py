@@ -1,3 +1,4 @@
+import serial.tools.list_ports
 import serial
 import time
 from serial.serialutil import SerialException
@@ -28,14 +29,29 @@ class SerialCommunication:
 
         try:
             self.serial_port.write(str(message).encode())
-            time.sleep(0.05)  
+            time.sleep(0.05)
             return True
         except SerialException:
             print(f"Lost connection to Arduino on port {self.port}")
             self.serial_port = None
             return False
 
-arduino_communicator = SerialCommunication('/dev/ttyACM0')  
+#port iteration
+available_ports = list(serial.tools.list_ports.comports())
+
+
+arduino_port = None
+for port in available_ports:
+    if "Arduino" in port.description:
+        arduino_port = port.device
+        break
+
+
+if arduino_port is None:
+    print("Arduino not found on any available ports.")
+else:
+    print(f"Arduino found on port: {arduino_port}")
+    arduino_communicator = SerialCommunication(arduino_port)
 
 def send_to_arduino(distance):
     success = arduino_communicator.send(distance)
