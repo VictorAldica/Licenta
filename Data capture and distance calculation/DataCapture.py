@@ -16,13 +16,14 @@ class FrameProcessor(threading.Thread):
         self.lock = threading.Lock()
         self._stop_event = threading.Event()
 
-        self.width = 640
+        self.width = 848
+        self.height = 480
         self.buffer_length = buffer_length
         self.pit_threshold = pit_threshold
         self.max_distance_history = deque(maxlen=buffer_length)
 
-        self.config.enable_stream(rs.stream.depth, self.width, 480, rs.format.z16, 30)
-        self.config.enable_stream(rs.stream.color, self.width, 480, rs.format.bgr8, 30)
+        self.config.enable_stream(rs.stream.depth, self.width, self.height, rs.format.z16, 30)
+        self.config.enable_stream(rs.stream.color, self.width, self.height, rs.format.bgr8, 30)
 
         self.profile = self.pipeline.start(self.config)
 
@@ -42,6 +43,7 @@ class FrameProcessor(threading.Thread):
                 with self.lock:
                     self.depth_image = np.asanyarray(aligned_depth_frame.get_data())
                     self.color_image = np.asanyarray(color_frame.get_data())
+
         finally:
             self.pipeline.stop()
 
@@ -50,7 +52,10 @@ class FrameProcessor(threading.Thread):
 
     def get_frames(self):
         with self.lock:
-            return self.color_image.copy() if self.color_image is not None else None, self.depth_image.copy() if self.depth_image is not None else None
+            return (
+                self.color_image.copy() if self.color_image is not None else None,
+                self.depth_image.copy() if self.depth_image is not None else None
+            )
 
     def calculate_distance(self, depth_image):
         depth_in_meters = depth_image * self.depth_scale
@@ -100,17 +105,20 @@ if __name__ == "__main__":
 
             min_distance, min_distance_coordinates, max_distance, max_distance_coordinates, section = frame_processor.calculate_distance(depth_image)
 
-            print(f"Min distance: {min_distance} m in section {section}")
-            print(f"Max distance: {max_distance} m")
+            print(f"Min distance: {min_distance:.4f} m in section {section}")
+            print(f"Max distance: {max_distance:.4f} m")
 
             if frame_processor.check_for_pit(max_distance):
                 print("Pit detected")
 
             cv2.circle(color_image, (min_distance_coordinates[1], min_distance_coordinates[0]), 5, (0, 255, 0), -1)
-            cv2.putText(color_image, f"{min_distance} m", (min_distance_coordinates[1], min_distance_coordinates[0] - 10), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2, cv2.LINE_AA)
+            cv2.putText(color_image, f"{min_distance:.4f} m", (min_distance_coordinates[1], min_distance_coordinates[0] - 10), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2, cv2.LINE_AA)
 
             cv2.circle(color_image, (max_distance_coordinates[1], max_distance_coordinates[0]), 5, (0, 0, 255), -1)
-            cv2.putText(color_image, f"{max_distance} m", (max_distance_coordinates[1], max_distance_coordinates[0] - 10), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2, cv2.LINE_AA)
+            cv2.putText(color_image, f"{max_distance:.4f} m", (max_distance_coordinates[1], max_distance_coordinates[0] - 10), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2, cv2.LINE_AA)
+
+            # Display section in the top left corner
+            cv2.putText(color_image, section, (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 165, 255), 2, cv2.LINE_AA)
 
             cv2.imshow('Color Image', color_image)
 
