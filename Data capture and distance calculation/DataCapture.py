@@ -15,8 +15,10 @@ class FrameProcessor(threading.Thread):
         self.lock = threading.Lock()
         self._stop_event = threading.Event()
 
-        self.config.enable_stream(rs.stream.depth, 640, 480, rs.format.z16, 30)
-        self.config.enable_stream(rs.stream.color, 640, 480, rs.format.bgr8, 30)
+        self.width = 640
+
+        self.config.enable_stream(rs.stream.depth, self.width, 480, rs.format.z16, 30)
+        self.config.enable_stream(rs.stream.color, self.width, 480, rs.format.bgr8, 30)
 
         self.profile = self.pipeline.start(self.config)
 
@@ -32,7 +34,6 @@ class FrameProcessor(threading.Thread):
                 aligned_frames = self.align.process(frames)
                 aligned_depth_frame = aligned_frames.get_depth_frame()
                 color_frame = aligned_frames.get_color_frame()
-
 
                 with self.lock:
                     self.depth_image = np.asanyarray(aligned_depth_frame.get_data())
@@ -61,7 +62,20 @@ class FrameProcessor(threading.Thread):
         max_distance = np.nanmax(masked_depth)
         max_distance_coordinates = np.unravel_index(np.nanargmax(masked_depth), masked_depth.shape)
 
-        return min_distance, min_distance_coordinates, max_distance, max_distance_coordinates
+        section = self.get_section(min_distance_coordinates)
+
+        return min_distance, min_distance_coordinates, max_distance, max_distance_coordinates, section
+
+    def get_section(self, coordinates):
+        _, y = coordinates
+        if y < self.width/4:
+            return 'Left'
+        elif y < self.width/2:
+            return 'Middle Left'
+        elif y < self.width*3/4:
+            return 'Middle Right'
+        else:
+            return 'Right'
 
 frame_processor = FrameProcessor()
 frame_processor.start()
@@ -73,9 +87,9 @@ try:
         if color_image is None or depth_image is None:
             continue
 
-        min_distance, min_distance_coordinates, max_distance, max_distance_coordinates = frame_processor.calculate_distance(depth_image)
+        min_distance, min_distance_coordinates, max_distance, max_distance_coordinates, section = frame_processor.calculate_distance(depth_image)
 
-        print(f"Min distance: {min_distance} m")
+        print(f"Min distance: {min_distance} m in section {section}")
         print(f"Max distance: {max_distance} m")
 
         cv2.circle(color_image, (min_distance_coordinates[1], min_distance_coordinates[0]), 5, (0, 255, 0), -1)
