@@ -4,6 +4,7 @@ import cv2
 import threading
 import time
 from collections import deque
+import serial
 
 class FrameProcessor(threading.Thread):
     def __init__(self, buffer_length=10, pit_threshold=1.5):
@@ -32,6 +33,8 @@ class FrameProcessor(threading.Thread):
 
         self.align = rs.align(rs.stream.color)
 
+        self.arduino = serial.Serial('COM5', 9600)
+
     def run(self):
         try:
             while not self._stop_event.is_set():
@@ -46,6 +49,7 @@ class FrameProcessor(threading.Thread):
 
         finally:
             self.pipeline.stop()
+            self.arduino.close()
 
     def stop(self):
         self._stop_event.set()
@@ -70,20 +74,33 @@ class FrameProcessor(threading.Thread):
 
         section = self.get_section(min_distance_coordinates)
 
-        self.max_distance_history.append(max_distance)
+        data_to_send = '\n'.join(map(lambda x: f"{x:.2f}", [
+            min_distance,
+            min_distance_coordinates[0],
+            min_distance_coordinates[1],
+            max_distance,
+            max_distance_coordinates[0],
+            max_distance_coordinates[1],
+            int(section),  
+        ])) + '\n'
 
+        self.arduino.write(data_to_send.encode())
+
+        print("Data sent to Arduino:", data_to_send)
         return min_distance, min_distance_coordinates, max_distance, max_distance_coordinates, section
 
     def get_section(self, coordinates):
         _, y = coordinates
-        if y < self.width/4:
-            return 'Left'
-        elif y < self.width/2:
-            return 'Middle Left'
-        elif y < self.width*3/4:
-            return 'Middle Right'
+        section_width = self.width / 4
+
+        if y < section_width:
+            return 1
+        elif y < section_width * 2:
+            return 2
+        elif y < section_width * 3:
+            return 3
         else:
-            return 'Right'
+            return 4
 
     def check_for_pit(self, max_distance):
         if len(self.max_distance_history) == self.buffer_length:
@@ -92,12 +109,15 @@ class FrameProcessor(threading.Thread):
                 return True
         return False
 
+
 if __name__ == "__main__":
     frame_processor = FrameProcessor()
     frame_processor.start()
 
     try:
         while True:
+            time.sleep(0.1)  # Delay to reduce CPU usage
+
             color_image, depth_image = frame_processor.get_frames()
 
             if color_image is None or depth_image is None:
@@ -117,8 +137,8 @@ if __name__ == "__main__":
             cv2.circle(color_image, (max_distance_coordinates[1], max_distance_coordinates[0]), 5, (0, 0, 255), -1)
             cv2.putText(color_image, f"{max_distance:.4f} m", (max_distance_coordinates[1], max_distance_coordinates[0] - 10), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2, cv2.LINE_AA)
 
-            # Display section in the top left corner
-            cv2.putText(color_image, section, (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 165, 255), 2, cv2.LINE_AA)
+           
+            cv2.putText(color_image, str(section), (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 165, 255), 2, cv2.LINE_AA)
 
             cv2.imshow('Color Image', color_image)
 
